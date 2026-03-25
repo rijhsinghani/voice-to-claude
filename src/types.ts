@@ -50,3 +50,12 @@ export const HOOK_RELAY_PORT = parseInt(process.env.HOOK_RELAY_PORT ?? "3847");
 // Optional until Phase 55 wires the full approval flow — empty string disables posting.
 export const CONTENT_APPROVAL_CHANNEL =
   process.env.CONTENT_APPROVAL_CHANNEL ?? "";
+if (!CONTENT_APPROVAL_CHANNEL) {
+  // Lazy pino import to avoid circular dependency — warning fires once at startup
+  import("pino").then(({ default: pino }) => {
+    const log = pino({ name: "types" });
+    log.warn(
+      "CONTENT_APPROVAL_CHANNEL is not set — content approval posting will be disabled until Phase 55 wires the full approval flow",
+    );
+  });
+}
