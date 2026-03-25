@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Environment variables (NEVER commit these)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Session state (persisted runtime data)
+sessions.json
+
+# Build output
+dist/
+*.js.map
+
+# TypeScript declaration files (generated)
+*.d.ts
+
+# Logs
+*.log
+logs/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

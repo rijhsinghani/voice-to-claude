@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd plist for voice-to-claude bridge
+
+  SETUP:
+  1. Copy this file to ~/Library/LaunchAgents/com.example.voice-to-claude.plist
+  2. Replace all YOUR_USERNAME and /path/to/voice-to-claude placeholders
+  3. Update EnvironmentVariables with your actual values (do NOT put them in .env for launchd)
+  4. Run: launchctl load ~/Library/LaunchAgents/com.example.voice-to-claude.plist
+
+  To stop: launchctl unload ~/Library/LaunchAgents/com.example.voice-to-claude.plist
+  To view logs: tail -f /tmp/voice-to-claude.log
+-->
+<plist version="1.0">
+<dict>
+  <!-- Unique identifier for this launchd job -->
+  <key>Label</key>
+  <string>com.example.voice-to-claude</string>
+
+  <!-- Keep the process alive — restart automatically on crash -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Run at login -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Command to run: node with tsx ESM loader -->
+  <key>ProgramArguments</key>
+  <array>
+    <!-- Replace with: which node -->
+    <string>/path/to/node</string>
+    <!-- Full path to tsx ESM loader in your project's node_modules -->
+    <string>--import</string>
+    <string>/path/to/voice-to-claude/node_modules/tsx/dist/esm/index.cjs</string>
+    <!-- Entry point -->
+    <string>/path/to/voice-to-claude/src/index.ts</string>
+  </array>
+
+  <!-- Working directory -->
+  <key>WorkingDirectory</key>
+  <string>/path/to/voice-to-claude</string>
+
+  <!--
+    Environment variables.
+    Set all secrets here (not in .env) when running under launchd.
+    launchd does NOT inherit your shell environment or read .env files.
+  -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SLACK_BOT_TOKEN</key>
+    <string>xoxb-your-bot-token-here</string>
+
+    <key>SLACK_APP_TOKEN</key>
+    <string>xapp-your-app-token-here</string>
+
+    <key>CLAUDE_CHANNEL</key>
+    <string>YOUR_CHANNEL_ID</string>
+
+    <key>ALLOWED_SLACK_USER</key>
+    <string>YOUR_SLACK_USER_ID</string>
+
+    <key>DEFAULT_REPO</key>
+    <string>my-project</string>
+
+    <!-- Optional: JSON map of repo name -> path -->
+    <!-- <key>REPO_PATHS</key> -->
+    <!-- <string>{"my-project":"/path/to/my-project"}</string> -->
+
+    <!-- Optional: Custom system prompt -->
+    <!-- <key>CLAUDE_SYSTEM_PROMPT</key> -->
+    <!-- <string>You are a helpful coding assistant.</string> -->
+
+    <!-- Optional: Gemini API key for audio transcription -->
+    <!-- <key>GEMINI_API_KEY</key> -->
+    <!-- <string>your-gemini-api-key</string> -->
+
+    <!-- PATH must include node and claude CLI locations -->
+    <!-- Run: echo $PATH in terminal to get your current PATH -->
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/home/YOUR_USERNAME/.local/bin</string>
+
+    <key>HOME</key>
+    <string>/home/YOUR_USERNAME</string>
+  </dict>
+
+  <!-- Stdout log (pino structured logs) -->
+  <key>StandardOutPath</key>
+  <string>/tmp/voice-to-claude.log</string>
+
+  <!-- Stderr log (errors and crashes) -->
+  <key>StandardErrorPath</key>
+  <string>/tmp/voice-to-claude-error.log</string>
+
+  <!-- Throttle restart on repeated crashes (10 second minimum between restarts) -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>

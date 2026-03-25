@@ -1,0 +1,31 @@
+{
+  "name": "voice-to-claude",
+  "version": "1.0.0",
+  "description": "Talk to Claude Code from your phone via Slack. Voice-to-action pipeline.",
+  "type": "module",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "scripts": {
+    "start": "node --import tsx/esm src/index.ts",
+    "dev": "npx tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@slack/bolt": "^4.6.0",
+    "@slack/web-api": "^7.15.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "pino": "^10.3.1",
+    "tsx": "^4.21.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
