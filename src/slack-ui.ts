@@ -1,5 +1,5 @@
 import type { HookPayload } from "./types.js";
-import { CLAUDE_CHANNEL } from "./types.js";
+import { CLAUDE_CHANNEL, CONTENT_APPROVAL_CHANNEL } from "./types.js";
 
 /**
  * Build a Block Kit chat.postMessage argument object for a permission request.
@@ -160,4 +160,88 @@ export function buildPermissionResolved(
     blocks.push(contextBlock);
   }
   return blocks;
+}
+
+/**
+ * Build a Block Kit message for content format approval in #content-approval.
+ * Used when a reel or repurposed format is ready for review.
+ *
+ * @param opts.format - Content format label (e.g. "Reel", "IG Story", "Carousel", "Twitter Thread")
+ * @param opts.ideaId - Idea UUID for correlation
+ * @param opts.caption - Preview text/caption for the content
+ * @param opts.actionValue - Opaque string passed through button values (e.g. JSON with ideaId+format)
+ *   Max 2000 chars (Slack Block Kit limit) — caller must ensure this.
+ */
+export function buildContentApprovalBlock(opts: {
+  format: string;
+  ideaId: string;
+  caption: string;
+  actionValue: string;
+}) {
+  const { format, ideaId, caption, actionValue } = opts;
+
+  const truncatedCaption =
+    caption.length > 2500
+      ? caption.slice(0, 2500) + "\n... (truncated)"
+      : caption;
+
+  return {
+    channel: CONTENT_APPROVAL_CHANNEL,
+    text: `${format} ready for approval`,
+    blocks: [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: `${format} — Ready to Publish`,
+          emoji: false,
+        },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: truncatedCaption,
+        },
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `Idea: \`${ideaId}\` | Format: ${format}`,
+          },
+        ],
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "Approve & Publish",
+              emoji: false,
+            },
+            style: "primary",
+            action_id: "content_approve",
+            value: actionValue,
+          },
+          {
+            type: "button",
+            text: { type: "plain_text", text: "Edit Caption", emoji: false },
+            action_id: "content_edit",
+            value: actionValue,
+          },
+          {
+            type: "button",
+            text: { type: "plain_text", text: "Skip", emoji: false },
+            style: "danger",
+            action_id: "content_skip",
+            value: actionValue,
+          },
+        ],
+      },
+    ],
+  };
 }
