@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 dotenv.config({ override: true });
+import { mkdirSync, writeFileSync } from "node:fs";
 import pino from "pino";
 import { App, LogLevel } from "@slack/bolt";
 import { allowlistMiddleware } from "./security.js";
@@ -14,6 +15,55 @@ import {
 } from "./audio-transcriber.js";
 
 const logger = pino({ name: "bolt-app" });
+
+// ---------------------------------------------------------------------------
+// Video file helpers
+// ---------------------------------------------------------------------------
+
+const VIDEO_MIME_TYPES = new Set([
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "video/x-m4v",
+]);
+const VIDEO_EXTENSIONS = /\.(mp4|mov|webm|m4v)$/i;
+
+/**
+ * Detect whether a Slack file is a video we should route to content ingest.
+ * Matches by MIME type first, then file extension as fallback.
+ * (Slack sometimes sends application/octet-stream for large video files.)
+ */
+function isVideoFile(file: SlackFile): boolean {
+  return (
+    VIDEO_MIME_TYPES.has(file.mimetype) ||
+    VIDEO_EXTENSIONS.test(file.name ?? "")
+  );
+}
+
+/**
+ * Download a Slack-private video file to a local temp path.
+ * Saves to /tmp/voice-to-claude-videos/<timestamp>-<fileId>.<ext>
+ *
+ * @param file      Slack file metadata (name, mimetype, url_private, id)
+ * @param botToken  SLACK_BOT_TOKEN for authenticated download
+ * @returns Absolute path of the downloaded file
+ */
+async function downloadVideoFile(
+  file: SlackFile,
+  botToken: string,
+): Promise<string> {
+  const dir = "/tmp/voice-to-claude-videos";
+  mkdirSync(dir, { recursive: true });
+  const ext = (file.name ?? "video.mp4").match(/\.\w+$/)?.[0] ?? ".mp4";
+  const localPath = `${dir}/${Date.now()}-${file.id}${ext}`;
+  const resp = await fetch(file.url_private, {
+    headers: { Authorization: `Bearer ${botToken}` },
+  });
+  if (!resp.ok) throw new Error(`Video download failed: ${resp.status}`);
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  writeFileSync(localPath, buffer);
+  return localPath;
+}
 
 export const boltApp = new App({
   token: process.env.SLACK_BOT_TOKEN!,
@@ -228,6 +278,80 @@ boltApp.message(async ({ message, client }) => {
       // Cannot proceed without transcription — stop processing
       return;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Video file detection
+  // If the message contains a video file, download it and route to video_ingest.
+  // This block runs AFTER the audio block and returns early — video and audio
+  // are mutually exclusive in this handler.
+  // ---------------------------------------------------------------------------
+  const videoFiles = (msg.files ?? []).filter(isVideoFile);
+  if (videoFiles.length > 0) {
+    const videoFile = videoFiles[0];
+    logger.info(
+      {
+        fileId: videoFile.id,
+        fileName: videoFile.name,
+        fileSize: videoFile.size,
+      },
+      "Video file detected — downloading for ingest",
+    );
+
+    try {
+      await client.reactions.add({
+        channel: msg.channel,
+        timestamp: msg.ts,
+        name: "video_camera",
+      });
+    } catch (err) {
+      logger.warn({ err }, "Failed to add video_camera reaction");
+    }
+
+    const botToken = process.env.SLACK_BOT_TOKEN!;
+    let localVideoPath: string;
+    try {
+      localVideoPath = await downloadVideoFile(videoFile, botToken);
+      logger.info({ localVideoPath }, "Video downloaded");
+    } catch (err) {
+      logger.error({ err, fileId: videoFile.id }, "Video download failed");
+      await client.chat.postMessage({
+        channel: msg.channel,
+        thread_ts: threadTs,
+        text: `:x: Video download failed: ${(err as Error).message}`,
+      });
+      return;
+    }
+
+    // Look up the idea registered for this thread
+    // getIdeaForThread is imported from thread-idea-registry.ts (created in plan 54-03)
+    const { getIdeaForThread } = await import("./thread-idea-registry.js");
+    const ideaId = getIdeaForThread(threadTs);
+
+    if (!ideaId) {
+      logger.warn(
+        { threadTs },
+        "No idea registered for this thread — video orphaned",
+      );
+      await client.chat.postMessage({
+        channel: msg.channel,
+        thread_ts: threadTs,
+        text: ":warning: No idea is linked to this thread yet. Voice your idea first, then upload the video.",
+      });
+      return;
+    }
+
+    logger.info(
+      { ideaId, localVideoPath, threadTs },
+      "Video matched to idea — ready for ingest",
+    );
+    // TODO(Phase 55): call ingest_video MCP tool with { ideaId, localVideoPath }
+    await client.chat.postMessage({
+      channel: msg.channel,
+      thread_ts: threadTs,
+      text: `:white_check_mark: Video received for idea \`${ideaId}\`. Processing will begin when Phase 55 is complete.`,
+    });
+    return;
   }
 
   // Build the final prompt:
