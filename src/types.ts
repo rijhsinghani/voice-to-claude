@@ -44,3 +44,9 @@ if (!CLAUDE_CHANNEL) {
 }
 
 export const HOOK_RELAY_PORT = parseInt(process.env.HOOK_RELAY_PORT ?? "3847");
+
+// CONTENT_APPROVAL_CHANNEL: Slack channel ID where content approval messages are posted.
+// Get it from Slack: right-click channel name -> View channel details -> Channel ID
+// Optional until Phase 55 wires the full approval flow — empty string disables posting.
+export const CONTENT_APPROVAL_CHANNEL =
+  process.env.CONTENT_APPROVAL_CHANNEL ?? "";
