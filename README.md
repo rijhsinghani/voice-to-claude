@@ -1,5 +1,13 @@
 # Voice to Claude
 
+> **⏸ Status: deferred.** This project is on hold until the OpenClaw agents
+> (Anisha for content, Ranveer for code) prove stable in production. When
+> agent reliability is validated, this codebase resumes as the iPhone voice
+> → Slack → Claude pipeline layer. Do not archive. Do not delete.
+>
+> Last active work: Phase 54 (content approval flow). Status as of
+> 2026-04-14: dormant, no launchd service running, no active users.
+
 Talk to Claude Code from your phone via Slack.
 
 A self-hosted bridge that connects your iPhone voice memos (or any Slack message) to the Claude Code CLI running on your Mac. Speak a task, get a response in the Slack thread.
