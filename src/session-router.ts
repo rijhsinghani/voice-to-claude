@@ -7,10 +7,12 @@ import {
   messageQueue,
   REPO_PATHS,
   DEFAULT_REPO,
+  getExecutorLabel,
 } from "./session-manager.js";
 import { saveState, loadState } from "./state-persistence.js";
 
 const logger = pino({ name: "session-router" });
+const executorLabel = getExecutorLabel();
 
 // ---------------------------------------------------------------------------
 // Output chunking helpers
@@ -133,7 +135,7 @@ export { DEFAULT_REPO };
 /**
  * Thread-to-session registry with disk persistence.
  * Maps Slack thread_ts -> SessionEntry so thread replies route to the correct
- * existing Claude session (via --resume UUID) instead of spawning a new one.
+ * existing agent session context instead of spawning an unrelated thread.
  *
  * On construction: loads persisted state from disk.
  * On every mutation (set/delete): persists to disk.
@@ -226,7 +228,7 @@ export function detectRepo(text: string): {
 // ---------------------------------------------------------------------------
 
 /**
- * Route a Slack message to an ephemeral `claude -p` process.
+ * Route a Slack message to an ephemeral coding-agent process.
  *
  * - First message in a thread: detect repo, assign a new UUID, spawn with
  *   `--session-id UUID`, register the session.
@@ -330,7 +332,7 @@ export async function routeMessage(opts: {
           thread_ts: threadTs,
           text: isResume
             ? `Continuing in \`${repo}\`...`
-            : `Starting Claude in \`${repo}\`...`,
+            : `Starting ${executorLabel} in \`${repo}\`...`,
         });
       } catch (err) {
         logger.warn({ err }, "Failed to post status message");
@@ -361,13 +363,13 @@ export async function routeMessage(opts: {
     // Spawn error (timeout, crash, etc.) — log and notify, preserve registry so --resume still works
     logger.error(
       { err, threadTs, claudeSessionId },
-      "spawnClaudeSession failed",
+      "spawn agent session failed",
     );
     try {
       await slackClient.chat.postMessage({
         channel,
         thread_ts: threadTs,
-        text: `:x: Claude process error: ${(err as Error).message}`,
+        text: `:x: ${executorLabel} process error: ${(err as Error).message}`,
       });
     } catch (postErr) {
       logger.warn({ postErr }, "Failed to post error message to Slack");

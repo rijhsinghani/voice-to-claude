@@ -19,12 +19,12 @@ Slack (Socket Mode WebSocket)
         |
         v
  [session-manager.ts]
-  - Spawns ephemeral `claude -p` process
+  - Spawns ephemeral coding-agent process
   - Passes prompt via stdin
   - Collects stdout, returns text output
         |
         v
- `claude -p --session-id UUID` or `--resume UUID`
+ Claude Code or Codex executor
   (runs in repo directory, exits when done)
         |
         v
@@ -134,6 +134,15 @@ Format: array of `[threadTs, SessionEntry]` pairs:
 Claude Code CLI v2.1.83+ has a bug where `--output-format text` produces empty stdout even when the model responds. The bridge works around this by reading the session JSONL file from `~/.claude/projects/`.
 
 When stdout is empty (and exit code is 0), `extractOutputFromJsonl()` scans the projects directory for a JSONL file matching the session UUID and extracts the last assistant text block.
+
+## Executor selection
+
+Set `AGENT_EXECUTOR=claude` for Claude Code or `AGENT_EXECUTOR=codex` for
+Codex. The Codex executor runs `codex exec` with the routed repository as the
+working root and writes the final assistant message back to Slack.
+
+Claude Code sessions support the hook relay configuration below. Codex-specific
+approval hooks are future work.
 
 ## Claude Code Hook Configuration
 

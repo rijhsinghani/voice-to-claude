@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
 
@@ -39,6 +40,21 @@ function loadRepoPaths(): Record<string, string> {
 
 export const REPO_PATHS: Record<string, string> = loadRepoPaths();
 
+export type AgentExecutor = "claude" | "codex";
+
+function loadAgentExecutor(): AgentExecutor {
+  const raw = (process.env.AGENT_EXECUTOR ?? "claude").toLowerCase();
+  if (raw === "claude" || raw === "codex") return raw;
+  logger.warn({ raw }, "Invalid AGENT_EXECUTOR; defaulting to claude");
+  return "claude";
+}
+
+export const AGENT_EXECUTOR: AgentExecutor = loadAgentExecutor();
+
+export function getExecutorLabel(): string {
+  return AGENT_EXECUTOR === "codex" ? "Codex" : "Claude";
+}
+
 // Default system prompt for Claude sessions.
 // Override with CLAUDE_SYSTEM_PROMPT env var to customize for your use case.
 const DEFAULT_SYSTEM_PROMPT =
@@ -74,6 +90,10 @@ export async function spawnClaudeSession(opts: {
   /** Called every 5 min with elapsed seconds so the caller can post progress pings */
   onPing?: (elapsedSec: number) => void;
 }): Promise<{ output: string; exitCode: number }> {
+  if (AGENT_EXECUTOR === "codex") {
+    return spawnCodexSession(opts);
+  }
+
   const { prompt, repo, claudeSessionId, isResume, extraAllowedTools } = opts;
   const repoPath = REPO_PATHS[repo];
 
@@ -228,6 +248,131 @@ export async function spawnClaudeSession(opts: {
       logger.info(
         { claudeSessionId, exitCode, outputLength: output.length },
         "claude -p process exited",
+      );
+
+      resolve({ output, exitCode });
+    });
+  });
+}
+
+async function spawnCodexSession(opts: {
+  prompt: string;
+  repo: string;
+  claudeSessionId: string;
+  isResume: boolean;
+  onPing?: (elapsedSec: number) => void;
+}): Promise<{ output: string; exitCode: number }> {
+  const { prompt, repo, claudeSessionId, isResume } = opts;
+  const repoPath = REPO_PATHS[repo];
+
+  if (!repoPath) {
+    throw new Error(
+      `Unknown repo: ${repo}. Valid repos: ${Object.keys(REPO_PATHS).join(", ")}`,
+    );
+  }
+
+  const tmpDir = mkdtempSync(join(tmpdir(), "agent-maintainer-bridge-"));
+  const outputFile = join(tmpDir, "last-message.txt");
+  const args = [
+    "exec",
+    "--cd",
+    repoPath,
+    "--sandbox",
+    process.env.CODEX_SANDBOX ?? "workspace-write",
+    "--ask-for-approval",
+    process.env.CODEX_APPROVAL_POLICY ?? "never",
+    "--output-last-message",
+    outputFile,
+    "-",
+  ];
+
+  logger.info(
+    {
+      repo,
+      repoPath,
+      claudeSessionId,
+      isResume,
+      argsPreview: args.slice(0, 8).join(" "),
+    },
+    "Spawning ephemeral codex exec process",
+  );
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.env.CODEX_CLI ?? "codex", args, {
+      cwd: repoPath,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    child.stdin.write(prompt);
+    child.stdin.end();
+
+    const startTime = Date.now();
+    const PING_INTERVAL_MS = 300_000;
+    const pingInterval = setInterval(() => {
+      const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+      opts.onPing?.(elapsedSec);
+    }, PING_INTERVAL_MS);
+
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrBuffer += chunk.toString();
+    });
+
+    const TIMEOUT_MS = 30 * 60 * 1000;
+    const timeout = setTimeout(() => {
+      clearInterval(pingInterval);
+      logger.warn(
+        { claudeSessionId, repo },
+        "codex exec process exceeded 30-minute timeout - killing",
+      );
+      child.kill("SIGTERM");
+      reject(
+        new Error(
+          `Codex process timed out after 30 minutes (session: ${claudeSessionId})`,
+        ),
+      );
+    }, TIMEOUT_MS);
+
+    child.on("error", (err) => {
+      clearInterval(pingInterval);
+      clearTimeout(timeout);
+      rmSync(tmpDir, { recursive: true, force: true });
+      logger.error({ err, claudeSessionId }, "Failed to spawn codex process");
+      reject(err);
+    });
+
+    child.on("close", (code) => {
+      clearInterval(pingInterval);
+      clearTimeout(timeout);
+
+      const exitCode = code ?? 1;
+
+      if (stderrBuffer.trim()) {
+        logger.debug(
+          { claudeSessionId, stderr: stderrBuffer.slice(0, 500) },
+          "codex stderr output",
+        );
+      }
+
+      let output = "";
+      try {
+        output = readFileSync(outputFile, "utf-8");
+      } catch {
+        output = stdoutBuffer;
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+
+      logger.info(
+        { claudeSessionId, exitCode, outputLength: output.length },
+        "codex exec process exited",
       );
 
       resolve({ output, exitCode });

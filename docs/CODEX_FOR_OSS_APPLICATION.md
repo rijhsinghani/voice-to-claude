@@ -12,8 +12,7 @@ Primary repository:
 Public positioning:
 
 - Owned public bridge for open-source maintainer automation.
-- Provider-neutral direction, with Claude Code implemented today and Codex
-  support planned.
+- Provider-neutral direction, with Claude Code and Codex executor paths.
 - OpenClaw, Hermes, and issue-worker projects are ecosystem context and design
   influence, not a substitute for maintainer authority on upstream repos.
 
@@ -89,8 +88,8 @@ execution from the same Slack thread where collaboration already happens.
 The project is intentionally focused on safe maintainer automation: Socket Mode
 avoids public webhooks, the hook relay binds to localhost, access is allowlisted,
 and approval flows let maintainers review plans or decisions before an agent
-continues. The current implementation supports Claude Code; the next public
-milestone is Codex executor support and Codex-powered review/triage examples.
+continues. The current implementation supports Claude Code and Codex executor
+paths; the next public milestone is Codex-powered review/triage examples.
 
 ### How will API credits be used?
 

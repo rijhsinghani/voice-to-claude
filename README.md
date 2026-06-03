@@ -9,9 +9,9 @@ control with local-only hook relays, allowlisted users, thread/session
 continuity, and plan/permission approval flows.
 
 The project started as a `voice-to-claude` bridge. The public direction is now
-provider-neutral maintainer automation: Claude Code is the current executor,
-and Codex support is the next target for PR review, issue triage, release notes,
-and security-review workflows.
+provider-neutral maintainer automation: Claude Code and Codex can both be used
+as local executors, with Codex-oriented maintainer workflows as the next public
+focus.
 
 ## Why maintainers use it
 
@@ -36,12 +36,12 @@ queue. This bridge keeps the sensitive part local:
 - Local hook relay for plan approval and permission decisions.
 - Health endpoint for local monitoring.
 - Claude Code executor.
+- Codex executor via `codex exec`.
 
 ## Codex-oriented roadmap
 
-The next public milestone is Codex-compatible maintainer workflows:
+The next public milestone is deeper Codex-compatible maintainer workflows:
 
-- Codex executor adapter for local CLI runs.
 - GitHub issue and PR triage prompts.
 - PR-review and remediation workflows.
 - Release-note and changelog generation.
@@ -114,8 +114,7 @@ agent session for that Slack thread, and posts the response back to the thread.
 
 - Node.js 20 or newer.
 - A Slack app with Socket Mode enabled.
-- A local coding-agent CLI. Claude Code is currently implemented; Codex support
-  is planned.
+- A local coding-agent CLI. Claude Code and Codex are supported executors.
 - Optional: Gemini API key for audio transcription.
 
 ## Configuration
@@ -132,6 +131,10 @@ and use placeholder-free local values.
 | `DEFAULT_REPO` | Yes | Default repo alias or path. |
 | `REPO_PATHS` | No | JSON map of repo alias to absolute local path. |
 | `CLAUDE_SYSTEM_PROMPT` | No | Extra context for Claude Code sessions. |
+| `AGENT_EXECUTOR` | No | `claude` or `codex`. Defaults to `claude`. |
+| `CODEX_CLI` | No | Codex binary name or path. Defaults to `codex`. |
+| `CODEX_SANDBOX` | No | Codex sandbox mode. Defaults to `workspace-write`. |
+| `CODEX_APPROVAL_POLICY` | No | Codex approval policy. Defaults to `never`. |
 | `HOOK_RELAY_PORT` | No | Local relay port. Defaults to `3847`. |
 | `STATE_FILE` | No | Path for persisted thread/session mappings. |
 | `GEMINI_API_KEY` | No | Required only for audio transcription. |
@@ -153,6 +156,27 @@ the coding agent remains local:
 - Generate release-note candidates from merged changes.
 - Resume a long-running investigation in the same Slack thread.
 - Require a plan approval before the agent edits files.
+
+## Executor selection
+
+Claude Code remains the default:
+
+```env
+AGENT_EXECUTOR=claude
+```
+
+To run Codex non-interactively:
+
+```env
+AGENT_EXECUTOR=codex
+CODEX_SANDBOX=workspace-write
+CODEX_APPROVAL_POLICY=never
+```
+
+The Codex executor calls `codex exec` in the routed repository and writes the
+last agent message back to the Slack thread. Claude-specific hook relay
+features remain available for Claude Code sessions; Codex-specific approval
+hooks are future work.
 
 ## Security model
 
