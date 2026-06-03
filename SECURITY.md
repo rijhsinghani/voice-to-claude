@@ -31,7 +31,8 @@ way to reproduce the issue.
 
 ## Known boundaries
 
-- The current executor implementation is Claude Code specific.
-- Codex support is planned but not implemented in this repository yet.
+- The current executor implementations support Claude Code and Codex.
+- Claude Code hook relay support is implemented; Codex-specific approval hooks
+  are future work.
 - The bridge should not be connected to repositories or systems the operator is
   not authorized to administer.
