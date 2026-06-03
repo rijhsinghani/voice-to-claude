@@ -1,10 +1,18 @@
 {
-  "name": "voice-to-claude",
+  "name": "agent-maintainer-bridge",
   "version": "1.0.0",
-  "description": "Talk to Claude Code from your phone via Slack. Voice-to-action pipeline.",
+  "description": "Self-hosted Slack and mobile control plane for maintainer coding-agent workflows.",
   "type": "module",
   "main": "src/index.ts",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rijhsinghani/voice-to-claude.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rijhsinghani/voice-to-claude/issues"
+  },
+  "homepage": "https://github.com/rijhsinghani/voice-to-claude#readme",
   "scripts": {
     "start": "node --import tsx/esm src/index.ts",
     "dev": "npx tsx watch src/index.ts",
