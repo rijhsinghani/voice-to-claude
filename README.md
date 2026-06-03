@@ -1,215 +1,190 @@
-# Voice to Claude
+# Agent Maintainer Bridge
 
-> **⏸ Status: deferred.** This project is on hold until the OpenClaw agents
-> (Anisha for content, Ranveer for code) prove stable in production. When
-> agent reliability is validated, this codebase resumes as the iPhone voice
-> → Slack → Claude pipeline layer. Do not archive. Do not delete.
->
-> Last active work: Phase 54 (content approval flow). Status as of
-> 2026-04-14: dormant, no launchd service running, no active users.
+Self-hosted Slack and mobile control plane for coding agents.
 
-Talk to Claude Code from your phone via Slack.
+Agent Maintainer Bridge lets an open-source maintainer send a message or voice
+memo from Slack, route it to the right local repository, run a coding-agent CLI,
+and receive the result back in the same Slack thread. It keeps the operator in
+control with local-only hook relays, allowlisted users, thread/session
+continuity, and plan/permission approval flows.
 
-A self-hosted bridge that connects your iPhone voice memos (or any Slack message) to the Claude Code CLI running on your Mac. Speak a task, get a response in the Slack thread.
+The project started as a `voice-to-claude` bridge. The public direction is now
+provider-neutral maintainer automation: Claude Code is the current executor,
+and Codex support is the next target for PR review, issue triage, release notes,
+and security-review workflows.
 
-## Pipeline
+## Why maintainers use it
 
-```
-iPhone Voice Memo
-      |
-      v
-Supabase Edge Function (optional)
-      |
-      v
-Slack #channel
-      |
-      v
-Socket Mode Bridge (this repo)
-      |
-      v
-Claude Code CLI (`claude -p`)
-      |
-      v
-Reply in Slack Thread
-```
+Maintainers do not always want another public webhook, dashboard, or hosted
+queue. This bridge keeps the sensitive part local:
 
-The bridge listens to your Slack channel via Socket Mode WebSocket. No public URL needed. No ngrok. Runs 24/7 on your Mac under launchd.
+- Slack uses Socket Mode, so no public HTTP endpoint is required.
+- The hook relay binds to `127.0.0.1`.
+- Only an allowlisted Slack user can interact with the bridge.
+- Each Slack thread maps to a coding-agent session so follow-up messages resume
+  context.
+- Approval buttons let the maintainer review plans or permission requests from
+  a phone before the agent proceeds.
 
-## Features
+## Current capabilities
 
-- **Voice-to-text:** Send audio files to Slack and the bridge transcribes them via Gemini Flash before passing to Claude
-- **Multi-repo support:** Route messages to different project directories by prefixing with repo name (e.g. `my-project: fix the auth bug`)
-- **Session persistence:** Thread replies resume the same Claude conversation context via `--resume UUID`
-- **Plan approval:** Claude's plan mode sends Slack buttons before executing. Approve, cancel, or request modifications.
-- **Permission relay:** Claude hooks send Slack buttons for permission requests (can be auto-approved for trusted sessions)
-- **Audio transcription:** m4a, mp3, wav, ogg, webm, aac, flac support via Gemini Flash
-- **Health monitoring:** `/health` endpoint returns status, pending count, and uptime
+- Slack Socket Mode intake for text messages and voice memo attachments.
+- Optional audio transcription via Gemini.
+- Multi-repo routing by safe aliases.
+- Per-thread session persistence.
+- Per-thread FIFO queue to avoid concurrent resume races.
+- Local hook relay for plan approval and permission decisions.
+- Health endpoint for local monitoring.
+- Claude Code executor.
 
-## Quick Start
+## Codex-oriented roadmap
 
-```bash
-# 1. Clone
-git clone https://github.com/rijhsinghani/voice-to-claude.git
-cd voice-to-claude
+The next public milestone is Codex-compatible maintainer workflows:
 
-# 2. Install
-npm install
+- Codex executor adapter for local CLI runs.
+- GitHub issue and PR triage prompts.
+- PR-review and remediation workflows.
+- Release-note and changelog generation.
+- Security/dependency review before public releases.
+- Example workflows that help maintainers operate agents without opening
+  unauthenticated endpoints.
 
-# 3. Configure
-cp .env.example .env
-# Edit .env with your Slack tokens and settings
-
-# 4. Configure Claude Code hooks (see docs/SETUP.md for details)
-# Add to ~/.claude/settings.json:
-# {
-#   "hooks": {
-#     "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "curl -s -X POST http://127.0.0.1:3847/hooks/permission -H 'Content-Type: application/json' -d @-" }] }],
-#     "Notification": [{ "hooks": [{ "type": "command", "command": "curl -s -X POST http://127.0.0.1:3847/hooks/notification -H 'Content-Type: application/json' -d @-" }] }]
-#   }
-# }
-
-# 5. Start
-npm start
-```
-
-Then send a message to your Slack channel and watch Claude respond in the thread.
-
-## Prerequisites
-
-- **Node.js >= 20** (check: `node --version`)
-- **Claude Code CLI** installed: `npm install -g @anthropic-ai/claude-code` (requires Anthropic account or Claude Max subscription)
-- **Slack app** with Socket Mode enabled (see [docs/SETUP.md](docs/SETUP.md))
-- **macOS or Linux** (launchd for macOS auto-start, systemd for Linux)
-
-## Configuration
-
-All configuration is via environment variables. Copy `.env.example` to `.env` and fill in your values.
-
-| Variable               | Required | Description                                            |
-| ---------------------- | -------- | ------------------------------------------------------ |
-| `SLACK_BOT_TOKEN`      | Yes      | Slack bot token (`xoxb-...`)                           |
-| `SLACK_APP_TOKEN`      | Yes      | Slack app-level token for Socket Mode (`xapp-...`)     |
-| `CLAUDE_CHANNEL`       | Yes      | Slack channel ID where Claude listens                  |
-| `ALLOWED_SLACK_USER`   | Yes      | Your Slack user ID (only this user can interact)       |
-| `DEFAULT_REPO`         | Yes      | Default repo name for Claude sessions                  |
-| `REPO_PATHS`           | No       | JSON map of `{"name": "/path"}` for multi-repo support |
-| `CLAUDE_SYSTEM_PROMPT` | No       | Custom system prompt for Claude sessions               |
-| `HOOK_RELAY_PORT`      | No       | Port for Claude Code hooks (default: `3847`)           |
-| `STATE_FILE`           | No       | Path for session state file (default: `sessions.json`) |
-| `GEMINI_API_KEY`       | No       | Google Gemini API key for audio transcription          |
-
-### Single-repo setup
-
-If you work on one project:
-
-```env
-DEFAULT_REPO=/path/to/my-project
-```
-
-### Multi-repo setup
-
-If you want to route messages to different repos:
-
-```env
-REPO_PATHS={"my-app":"/path/to/my-app","api":"/path/to/api"}
-DEFAULT_REPO=my-app
-```
-
-Send `api: fix the login endpoint` to route to the `api` repo.
-
-## How It Works
-
-### Components
-
-**`src/bolt-app.ts`** - Slack Socket Mode connection. Receives messages, handles button actions (permission allow/deny, plan approve/cancel).
-
-**`src/session-router.ts`** - Routes each Slack message to the right repo. New thread = new Claude session. Thread reply = resume existing session.
-
-**`src/session-manager.ts`** - Spawns ephemeral `claude -p` processes. Each message is a separate process that exits when complete. Uses `--session-id` and `--resume` for conversation continuity.
-
-**`src/hook-relay.ts`** - Express server on `localhost:3847`. Receives Claude Code hooks (permission requests, notifications, plan approvals) and relays them to Slack as interactive buttons.
-
-**`src/pending-store.ts`** - Promise store for pending permission decisions. Each Slack button tap resolves the pending hook.
-
-**`src/state-persistence.ts`** - Persists thread-to-session mappings to `sessions.json`. Survives restarts. 7-day TTL.
-
-**`src/security.ts`** - Single-user allowlist middleware. Only `ALLOWED_SLACK_USER` can interact.
-
-**`src/audio-transcriber.ts`** - Downloads Slack audio files and transcribes via Gemini Flash.
-
-### Session lifecycle
-
-1. User sends a message to Slack channel
-2. Bridge receives it via Socket Mode WebSocket
-3. New thread: assign UUID, spawn `claude -p --session-id UUID` in repo directory
-4. Thread reply: look up UUID from state, spawn `claude -p --resume UUID`
-5. Output posted back to Slack thread
-6. Session entry persisted to disk
-
-### Permission relay
-
-Claude Code can be configured to send hook events to the bridge:
-
-1. Claude wants to run a command that requires permission
-2. Hook sends POST to `localhost:3847/hooks/permission`
-3. Bridge posts Slack message with Allow/Deny/Always Allow buttons
-4. User taps a button
-5. Bridge resolves the pending hook promise with the decision
-6. Claude proceeds or stops
-
-### Plan approval
-
-When Claude uses plan mode:
-
-1. Claude finishes planning, ready to execute
-2. ExitPlanMode hook fires, sends plan content to `localhost:3847/hooks/plan-approval`
-3. Bridge posts plan to Slack with Approve/Modify/Cancel buttons
-4. User reviews and decides
-5. Claude executes or stops
-
-## iPhone Shortcut
-
-See [docs/IPHONE-SHORTCUT.md](docs/IPHONE-SHORTCUT.md) for instructions on setting up a voice-first workflow from your iPhone.
-
-## macOS Auto-Start (launchd)
-
-To run the bridge 24/7 and auto-restart on crash:
-
-1. Copy and edit the template plist:
-
-   ```bash
-   cp com.example.voice-to-claude.plist ~/Library/LaunchAgents/com.yourdomain.voice-to-claude.plist
-   # Edit the file: replace all /path/to/voice-to-claude and YOUR_USERNAME placeholders
-   # Set your Slack tokens in EnvironmentVariables (do NOT use .env with launchd)
-   ```
-
-2. Load the service:
-
-   ```bash
-   launchctl load ~/Library/LaunchAgents/com.yourdomain.voice-to-claude.plist
-   ```
-
-3. Check it's running:
-
-   ```bash
-   curl http://127.0.0.1:3847/health
-   # {"status":"ok","pending":0,"uptime":42.1}
-   ```
-
-4. View logs:
-   ```bash
-   tail -f /tmp/voice-to-claude.log
-   ```
-
-See [docs/SETUP.md](docs/SETUP.md) for detailed setup instructions.
+See [Codex for OSS application plan](docs/CODEX_FOR_OSS_APPLICATION.md) for the
+public-safe application narrative and API-credit use case.
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for component diagrams and flow documentation.
+```text
+Slack message or voice memo
+        |
+        v
+Slack Socket Mode bridge
+        |
+        v
+Repo router and session registry
+        |
+        v
+Coding-agent executor
+        |
+        v
+Slack thread response
+```
+
+Optional approval flow:
+
+```text
+Coding-agent hook
+        |
+        v
+Local relay on 127.0.0.1
+        |
+        v
+Slack approval buttons
+        |
+        v
+Allow, deny, approve, modify, or cancel
+```
+
+## Quick start
+
+```bash
+git clone https://github.com/rijhsinghani/voice-to-claude.git
+cd voice-to-claude
+npm install
+cp .env.example .env
+```
+
+Edit `.env` with your Slack app tokens, allowlisted Slack user, and repository
+aliases. Then start the bridge:
+
+```bash
+npm start
+```
+
+Send a message in the configured Slack channel:
+
+```text
+my-project: review the failing tests and propose a fix
+```
+
+The bridge routes the message to `my-project`, starts or resumes the local
+agent session for that Slack thread, and posts the response back to the thread.
+
+## Prerequisites
+
+- Node.js 20 or newer.
+- A Slack app with Socket Mode enabled.
+- A local coding-agent CLI. Claude Code is currently implemented; Codex support
+  is planned.
+- Optional: Gemini API key for audio transcription.
+
+## Configuration
+
+All configuration is via environment variables. Copy `.env.example` to `.env`
+and use placeholder-free local values.
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `SLACK_BOT_TOKEN` | Yes | Slack bot token. |
+| `SLACK_APP_TOKEN` | Yes | Slack app-level token for Socket Mode. |
+| `CLAUDE_CHANNEL` | Yes | Slack channel ID for bridge intake. |
+| `ALLOWED_SLACK_USER` | Yes | Slack user ID allowed to operate the bridge. |
+| `DEFAULT_REPO` | Yes | Default repo alias or path. |
+| `REPO_PATHS` | No | JSON map of repo alias to absolute local path. |
+| `CLAUDE_SYSTEM_PROMPT` | No | Extra context for Claude Code sessions. |
+| `HOOK_RELAY_PORT` | No | Local relay port. Defaults to `3847`. |
+| `STATE_FILE` | No | Path for persisted thread/session mappings. |
+| `GEMINI_API_KEY` | No | Required only for audio transcription. |
+
+Example multi-repo configuration:
+
+```env
+DEFAULT_REPO=docs
+REPO_PATHS={"docs":"/home/user/open-source/docs","api":"/home/user/open-source/api"}
+```
+
+## Maintainer workflows
+
+Use this project for workflows where Slack is the lightweight control plane and
+the coding agent remains local:
+
+- Ask for a PR review from your phone.
+- Triage an issue and draft an implementation plan.
+- Generate release-note candidates from merged changes.
+- Resume a long-running investigation in the same Slack thread.
+- Require a plan approval before the agent edits files.
+
+## Security model
+
+- No public webhooks are required.
+- The hook relay binds to localhost.
+- Slack access is restricted by `ALLOWED_SLACK_USER`.
+- Tokens and paths are environment variables, not source-controlled values.
+- Example files use placeholders only.
+
+See [SECURITY.md](SECURITY.md) before running the bridge on real repositories.
+
+## Development
+
+```bash
+npm run typecheck
+npm test
+```
+
+The repo is intentionally small: a Slack intake layer, a router/session layer,
+an executor layer, and a local hook relay.
 
 ## Contributing
 
-Pull requests welcome. Please keep personal configs out of code.
+Maintainer-focused improvements are welcome, especially:
+
+- Codex executor support.
+- Safer approval workflows.
+- GitHub issue and PR integrations.
+- Better examples for open-source maintainers.
+- Tests around routing, security, and hook decisions.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
